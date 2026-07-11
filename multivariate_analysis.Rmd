@@ -1,0 +1,215 @@
+---
+title: "2020165042 salih yasin kedir cok degiskenler ist odev"
+author: "salih yasin"
+date: "2026-04-30"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# İçindekiler (Table of Contents)
+
+1. Veri Setinin Yüklenmesi ve Hazırlanması
+2. Çok Değişkenli Normallik Varsayımının İncelenmesi
+3. Tek Örneklem Hotelling $T^2$ Testi
+4. İki Örneklem Hotelling $T^2$ Testi ve Box's M Varsayım Testi
+5. Çok Değişkenli Varyans Analizi (MANOVA)
+6. Açıklayıcı Faktör Analizi (EFA - Exploratory Factor Analysis)
+
+---
+
+```{r}
+library(psych)      # KMO, Bartlett ve Faktör Analizi için
+
+library(MVN)
+library(gsl)
+library(ICSNP)      # Hotelling T2 Testleri için
+library(heplots)    # Box's M Testi ve MANOVA görselleştirme için
+library(biotools)   # Alternatif Box's M testi için
+library(tidyverse)
+```
+## 1. Veri Setinin Yüklenmesi ve Hazırlanması
+
+Çok değişkenli istatistiksel analizlere başlamadan önce verinin analize uygun hale getirilmesi gerekir. Veri seti yüklendikten sonra `na.omit()` fonksiyonu ile eksik gözlemler (NA) veri setinden çıkarılır. Eksik veriler, hesaplanacak olan kovaryans ve korelasyon matrislerini bozabileceği için analiz öncesi bu adım oldukça kritiktir.
+
+```{r}
+data1 <- read.csv("employee_attrition_train.csv")
+df <- data.frame(data1)
+
+data2 <- na.omit(df)
+```
+
+```{r}
+surekli_degiskenler <- data2[, c("Age", "MonthlyIncome", "DistanceFromHome", "TotalWorkingYears")]
+grup <- as.factor(data2$Attrition)
+```
+## 2. Çok Değişkenli Normallik Varsayımının İncelenmesi
+
+Çok değişkenli istatistiksel testlerin birçoğu (örneğin Hotelling $T^2$ ve MANOVA), verilerin çok değişkenli normal dağılıma (Multivariate Normal Distribution) sahip olmasını varsayar. Eğer veri bu varsayımı sağlamıyorsa, test sonuçlarının güvenilirliği düşebilir ve Tip I hata oranı artabilir. Bu durumu kontrol etmek için Henze-Zirkler veya Mardia testleri uygulanmaktadır.
+
+**Hipotezler:**
+- **$H_0$:** Veri seti çok değişkenli normal dağılım göstermektedir.
+- **$H_1$:** Veri seti çok değişkenli normal dağılım göstermemektedir.
+
+```{r}
+surekli_degiskenler <- as.matrix(surekli_degiskenler)
+```
+```{r}
+normallik_sonuc <- mvn(
+  data = surekli_degiskenler,
+  mvnTest = "hz",
+  multivariateOutlierMethod = "quan"
+)
+
+normallik_sonuc$multivariate_normality
+```
+
+### Neden Mahalanobis Uzaklığı ve Q-Q Grafiği Kullanıyoruz?
+
+Mardia veya Henze-Zirkler gibi istatistiksel testlerin yanı sıra, normallik varsayımını görsel olarak da değerlendirmek önemlidir. Mahalanobis uzaklığı, bir noktanın değişkenlerin ortalamasından ne kadar uzak olduğunu çok değişkenli uzayda ölçer. Eğer veri çok değişkenli normal dağılıma sahipse, Mahalanobis uzaklıklarının Ki-Kare ($\chi^2$) dağılımına uyması beklenir. Q-Q (Quantile-Quantile) grafiği ile noktaların referans çizgisi etrafında toplanıp toplanmadığına bakılır ve çok değişkenli aykırı değerler tespit edilebilir.
+
+```{r}
+d <- mahalanobis(
+  surekli_degiskenler,
+  colMeans(surekli_degiskenler),
+  cov(surekli_degiskenler)
+)
+
+qqnorm(d)
+qqline(d)
+```
+## 3. Tek Örneklem Hotelling $T^2$ Testi
+
+Tek örneklem Hotelling $T^2$ testi, tek değişkenli t-testinin çok değişkenli karşılığıdır. Birden fazla sürekli değişkenin ortalamalarının, önceden belirlenmiş teorik veya spesifik bir referans popülasyon ortalama vektörüne ($\mu_0$) eşit olup olmadığını tek seferde (eş zamanlı olarak) test eder. Ayrı ayrı t-testleri yapmak, Tip I hatasının (gerçekte doğru olan $H_0$ hipotezini reddetme olasılığı) kümülatif olarak artmasına neden olur. Hotelling $T^2$ bu hatayı kontrol altında tutar.
+
+**Hipotezler:**
+- **$H_0$:** Gözlenen ortalama vektörü, referans vektörüne ($\mu_0$) eşittir.
+- **$H_1$:** Gözlenen ortalama vektörü, referans vektöründen en az bir değişkende farklıdır.
+
+Bu analizde referans ortalama vektörü $\mu_0 = [35, 6000, 10, 10]$ olarak (Sırasıyla Yaş, Aylık Gelir, Evden Uzaklık ve Toplam Çalışma Yılı için) belirlenmiştir.
+
+```{r}
+mu0 <- c(35, 6000, 10, 10)
+
+tek_t2 <- HotellingsT2(surekli_degiskenler, mu = mu0)
+print(tek_t2)
+```
+## 4. İki Örneklem Hotelling $T^2$ Testi ve Box's M Varsayım Testi
+
+İki örneklem Hotelling $T^2$ testi, bağımsız iki grubun (örneğin; işten ayrılanlar ve kalanlar) birden fazla sürekli değişken açısından vektörel ortalamalarının anlamlı bir şekilde farklılık gösterip göstermediğini test eder.
+
+### Varsayım: Varyans-Kovaryans Matrislerinin Homojenliği (Box's M Testi)
+Hotelling $T^2$ ve MANOVA analizleri uygulanmadan önce grupların varyans-kovaryans matrislerinin eşit (homojen) olduğu varsayımı kontrol edilmelidir. Bu amaçla Box's M testi kullanılır. Eğer bu varsayım ihlal edilirse (test anlamlı çıkarsa), grupların dağılım yapısı birbirinden farklı demektir ve analiz sonuçları yanıltıcı olabilir.
+
+**Box's M Hipotezleri:**
+- **$H_0$:** Grupların varyans-kovaryans matrisleri homojendir (eşittir).
+- **$H_1$:** Grupların varyans-kovaryans matrisleri homojen değildir (farklıdır).
+
+```{r}
+box_sonuc <- boxM(as.data.frame(surekli_degiskenler), grup)
+print(box_sonuc)
+```
+```{r}
+iki_t2 <- HotellingsT2(surekli_degiskenler ~ grup)
+print(iki_t2)
+```
+
+## 5. Çok Değişkenli Varyans Analizi (MANOVA)
+
+MANOVA, klasik ANOVA'nın çok değişkenli versiyonudur. İkiden fazla kategorisi olan bağımsız bir değişkenin (örneğin Departman: Satış, Ar-Ge, İK vb.), birden fazla sürekli bağımlı değişken üzerinde yarattığı farklılıkları aynı anda analiz eder. Ayrı ayrı ANOVA yapmak yerine MANOVA kullanılması, değişkenler arasındaki korelasyonu da hesaba katarak istatistiksel gücü artırır ve Tip I hata olasılığını kontrol eder.
+
+**Hipotezler:**
+- **$H_0$:** Departmanlar arasında seçilen sürekli değişkenlerin ortalama vektörleri açısından anlamlı bir fark yoktur.
+- **$H_1$:** En az bir departman grubu, seçilen değişkenlerin ortalama vektörleri açısından diğerlerinden farklıdır.
+
+MANOVA'da sonuçları yorumlamak için kullanılan en yaygın test istatistiklerinden biri **Wilks' Lambda**'dır (değer 0 ile 1 arasındadır, 0'a yaklaştıkça grup farklılıkları artar).
+
+```{r}
+manova_model <- manova(as.matrix(surekli_degiskenler) ~ data2$Department)
+summary(manova_model, test = "Wilks") # Genellikle Wilks' Lambda tercih edilir [20, 21]
+```
+Yorum
+
+Wilks Lambda değeri 0.97876 olarak bulunmuştur. Bu değerin 1’e oldukça yakın olması, gruplar arasında farkların zayıf düzeyde olduğunu göstermektedir.
+
+F istatistiği 2.0987 ve buna karşılık gelen p-değeri 0.03302 olarak elde edilmiştir. p < 0.05 olduğu için sonuç istatistiksel olarak anlamlıdır.
+
+
+## 6. Açıklayıcı Faktör Analizi (EFA - Exploratory Factor Analysis)
+
+Faktör analizi, birbiriyle yüksek düzeyde korelasyon gösteren, çok sayıdaki gözlemlenebilen değişkeni; birbirlerinden bağımsız ve daha az sayıdaki "gizil (latent) faktörlere" indirgemeyi amaçlayan boyut indirgeme tekniğidir. Bu sayede karmaşık yapılı veri setleri daha kolay yorumlanabilir hale gelir.
+
+### Neden KMO ve Bartlett Testleri Yapılır?
+
+Faktör analizine geçmeden önce veri setinin bu analize uygun olup olmadığı test edilmelidir:
+
+1. **Kaiser-Meyer-Olkin (KMO) Örneklem Yeterliliği:** Değişkenler arasındaki kısmi korelasyonların küçüklüğünü ölçer. Değerin 0.60'ın üzerinde (tercihen > 0.70) olması, değişkenler arasındaki ortak varyansın faktör oluşturmak için yeterli olduğunu gösterir.
+2. **Bartlett Küresellik Testi (Bartlett's Test of Sphericity):** Korelasyon matrisinin birim (identity) matris olup olmadığını test eder. 
+   - **$H_0$:** Korelasyon matrisi birim matristir (değişkenler arası ilişki yoktur). 
+   - Test sonucunun anlamlı olması ($p < 0.05$), değişkenler arasında yeterli korelasyon bulunduğunu ve verinin faktör analizine uygun olduğunu kanıtlar.
+
+```{r}
+fa_verisi <- data2[, c("YearsAtCompany", "YearsInCurrentRole", 
+                       "YearsSinceLastPromotion", "YearsWithCurrManager")]
+fa_verisi <- na.omit(fa_verisi)
+R_matris <- cor(fa_verisi)
+print(round(R_matris, 2))
+print(KMO(fa_verisi))
+print(cortest.bartlett(R_matris, n = nrow(fa_verisi)))
+```
+Bu veri setinde değişkenler arasında güçlü ve anlamlı korelasyonlar bulunmaktadır. Özellikle yıllara dayalı değişkenler (YearsAtCompany, YearsInCurrentRole, YearsWithCurrManager) yüksek korelasyon göstermektedir.
+
+KMO değeri 0.82 olup örneklem yeterliliğinin çok iyi düzeyde olduğunu göstermektedir. Her bir değişkenin MSA değeri de kabul edilebilir seviyenin üzerindedir.
+
+Bartlett testi anlamlıdır (p < 0.001), bu da değişkenler arasında faktör analizine uygun korelasyon yapısının bulunduğunu göstermektedir.
+
+🎯 Sonuç
+
+👉 Bu veri seti faktör analizi için uygundur
+👉 Hatta oldukça iyi bir adaydır (tek bir “tenure” faktörü çıkma ihtimali yüksek)
+
+🧠 Kısa yorum (tek cümlelik sınav versiyonu)
+
+KMO = 0.82 ve Bartlett testi anlamlı (p < 0.001) olduğundan veri seti faktör analizi için uygundur ve değişkenler arasında güçlü bir ortak yapı bulunmaktadır.
+
+
+### Özdeğerler (Eigenvalues) ve Yamaç Grafiği (Scree Plot) Kullanımı
+
+Faktör analizinde kaç tane alt boyutun/faktörün çıkarılacağına karar vermek için farklı kriterler kullanılır:
+
+- **Kaiser Kriteri:** Özdeğeri (Eigenvalue) 1'den büyük olan faktörlerin anlamlı olduğu ve korunması gerektiği varsayılır. Bir değişkenin standartlaştırılmış varyansı 1 olduğu için, özdeğeri 1'den küçük faktörler bir değişkenden bile daha az bilgi açıklar.
+- **Yamaç Grafiği (Scree Plot):** Özdeğerlerin faktör sayısına göre çizildiği grafiktir. Grafiğin belirgin bir şekilde eğim değiştirip düzleşmeye (yataylaşmaya) başladığı nokta, kaç faktör tutulacağını belirlemede görsel bir ölçüttür.
+
+```{r}
+ozdegerler <- eigen(R_matris)$values
+print(ozdegerler)
+
+# Scree Plot (Yamaç Birikinti Grafiği)
+plot(ozdegerler, type = "b", main = "Scree Plot", xlab = "Faktör", ylab = "Özdeğer")
+abline(h = 1, col = "red", lty = 2)
+```
+Özdeğerler incelendiğinde yalnızca birinci faktörün 1’den büyük olduğu (λ = 2.95) görülmektedir. Diğer faktörlerin özdeğerleri 1’in oldukça altındadır.
+
+Kaiser kriterine göre yalnızca bir faktör tutulmalıdır. Scree plot grafiğinde de ilk faktörden sonra belirgin bir kırılma noktası oluşmakta ve grafik yataylaşmaktadır.
+
+Bu sonuçlara göre veri seti tek boyutlu bir yapı göstermektedir ve değişkenler büyük ölçüde “çalışma süresi / kariyer deneyimi” adlı tek bir gizli faktörü temsil etmektedir.
+
+
+### Faktör Döndürme (Rotation) ve Faktör Yüklerinin Yorumlanması
+
+Değişkenlerin hangi faktörle ilişkili olduğunu belirginleştirmek ve yorumlanabilirliği artırmak için döndürme işlemi uygulanır. 
+
+- **Eğik Döndürme (Oblique Rotation - örn: oblimin):** Faktörler arasında ilişkinin olabileceği varsayıldığında kullanılır. Sosyal bilimlerde faktörler nadiren tamamen bağımsız olduğu için genellikle bu yöntem tercih edilir.
+- **Faktör Yükleri:** Bir değişkenin o faktörle olan korelasyonunu ifade eder. Genellikle 0.30 veya 0.40 altındaki yük değerleri gizlenerek (cutoff), değişkenin hangi faktörü tanımladığı daha net hale getirilir. Yüksek yük, o değişkenin faktörün önemli bir bileşeni olduğunu gösterir.
+
+```{r}
+fa_sonuc <- fa(fa_verisi, nfactors = 1, rotate = "oblimin", fm = "minres")
+
+# Faktör Yüklerini Gör (0.30 altını gizle)
+print(fa_sonuc$loadings, cutoff = 0.3)
+```
+Faktör yükleri incelendiğinde tüm değişkenlerin tek bir faktör altında yüksek ve pozitif yük değerlerine sahip olduğu görülmektedir. Özellikle YearsAtCompany (0.926) ve YearsInCurrentRole (0.857) değişkenleri faktörü güçlü şekilde temsil etmektedir.
+
+YearsSinceLastPromotion değişkeni diğerlerine göre daha düşük olmakla birlikte (0.627) kabul edilebilir düzeydedir.
+
+Tek faktör toplam varyansın %66.3’ünü açıklamaktadır. Bu sonuç, değişkenlerin büyük ölçüde “kariyer süresi / organizasyondaki deneyim” adlı tek bir gizli yapıyı ölçtüğünü göstermektedir.
