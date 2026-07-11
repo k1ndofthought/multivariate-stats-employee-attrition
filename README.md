@@ -6,7 +6,7 @@ A multivariate statistics project applying Hotelling's T², Box's M test, MANOVA
 
 This project explores whether employees who leave a company ("Attrition = Yes") differ systematically from those who stay, and whether tenure-related variables can be reduced to a smaller number of underlying dimensions. All analysis was done in R using the `MVN`, `ICSNP`, `heplots`, `biotools`, and `psych` packages.
 
-**Dataset:** `employee_attrition_train.csv` — includes employee demographics, income, tenure, and department, along with an attrition flag (Yes/No).
+**Dataset:** [IBM HR Analytics Employee Attrition & Performance](https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset) (Kaggle) — includes employee demographics, income, tenure, and department, along with an attrition flag (Yes/No). This is a fictional dataset created by IBM data scientists for analytics practice, not real employee records.
 
 ## Methodology & Results
 
@@ -67,8 +67,9 @@ R — `MVN`, `ICSNP` (Hotelling's T²), `heplots` / `biotools` (Box's M, MANOVA)
 | File | Description |
 |---|---|
 | `multivariate_analysis.Rmd` | Full R Markdown source code |
-| `multivariate_analysis.html` / `.pdf` | Knitted report with output and plots |
-| `employee_attrition_train.csv` | Dataset used (if shareable / public source) |
+| `multivariate_analysis.pdf` | Knitted report with output and plots |
+
+> Note: the raw dataset isn't included in this repo — download it directly from [Kaggle](https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset) and place it in the working directory as `employee_attrition_train.csv` to reproduce the analysis.
 
 ## Notes & Limitations
 
